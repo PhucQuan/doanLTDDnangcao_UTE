@@ -1,210 +1,256 @@
-    import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  Alert,
-  SafeAreaView,
-} from 'react-native';
-import { StackNavigationProp } from '@react-navigation/stack';
-import { RootStackParamList } from '../types/navigation';
+import React, { useEffect, useState } from 'react';
+import { View, StyleSheet, ScrollView, Alert, Dimensions, TouchableOpacity } from 'react-native';
+import { Text, Button, Card, Avatar, Title, Paragraph, IconButton, useTheme, ActivityIndicator } from 'react-native-paper';
+import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { User } from '../types';
+import { StackNavigationProp } from '@react-navigation/stack';
+import { COLORS } from '../utils/constants';
 
-type HomeScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Home'>;
-
-interface Props {
-  navigation: HomeScreenNavigationProp;
+// Định nghĩa kiểu cho User Data
+interface UserData {
+  name: string;
+  phone: string;
+  email?: string;
+  role?: string;
 }
 
-const HomeScreen: React.FC<Props> = ({ navigation }) => {
-  const [user, setUser] = useState<User | null>(null);
+const HomeScreen = () => {
+  const navigation = useNavigation<StackNavigationProp<any>>();
+  const theme = useTheme();
+  const [user, setUser] = useState<UserData | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  // Mock Data cho danh sách đề tài (Sau này thế bằng API)
+  const topics = [
+    { id: 1, title: 'Lập trình di động React Native', icon: 'cellphone', progress: 0.8, color: '#4caf50' },
+    { id: 2, title: 'Bảo mật API & Backend', icon: 'shield-check', progress: 0.6, color: '#2196f3' },
+    { id: 3, title: 'Thiết kế UI/UX với Paper', icon: 'palette', progress: 0.4, color: '#ff9800' },
+    { id: 4, title: 'Quản lý State & Redux', icon: 'database', progress: 0.2, color: '#9c27b0' },
+  ];
 
   useEffect(() => {
     loadUserData();
   }, []);
 
-  const loadUserData = async (): Promise<void> => {
+  const loadUserData = async () => {
     try {
-      const userData = await AsyncStorage.getItem('user');
-      if (userData) {
-        setUser(JSON.parse(userData));
+      const storedUser = await AsyncStorage.getItem('user');
+      if (storedUser) {
+        setUser(JSON.parse(storedUser));
       }
     } catch (error) {
-      console.error('Error loading user data:', error);
+      console.error('Lỗi khi load user:', error);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleLogout = (): void => {
+  const handleLogout = async () => {
     Alert.alert(
       'Đăng xuất',
       'Bạn có chắc chắn muốn đăng xuất?',
       [
-        {
-          text: 'Hủy',
-          style: 'cancel',
-        },
+        { text: 'Hủy', style: 'cancel' },
         {
           text: 'Đăng xuất',
           style: 'destructive',
           onPress: async () => {
-            try {
-              await AsyncStorage.multiRemove(['user', 'sessionId']);
-              navigation.reset({
-                index: 0,
-                routes: [{ name: 'Login' }],
-              });
-            } catch (error) {
-              console.error('Error during logout:', error);
-            }
-          },
-        },
+            await AsyncStorage.clear(); // Xóa session
+            navigation.replace('Login'); // Quay về Login
+          }
+        }
       ]
     );
   };
 
-  return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.content}>
-        <View style={styles.welcomeContainer}>
-          <Text style={styles.welcomeTitle}>Chào mừng!</Text>
-          {user && (
-            <View style={styles.userInfo}>
-              <Text style={styles.userName}>{user.name}</Text>
-              <Text style={styles.userPhone}>{user.phone}</Text>
-              {user.email && (
-                <Text style={styles.userEmail}>{user.email}</Text>
-              )}
-            </View>
-          )}
-        </View>
+  const getInitials = (name: string) => {
+    return name ? name.charAt(0).toUpperCase() : 'U';
+  };
 
-        <View style={styles.featuresContainer}>
-          <Text style={styles.featuresTitle}>Tính năng</Text>
-          
-          <TouchableOpacity style={styles.featureButton}>
-            <Text style={styles.featureButtonText}>Thông tin cá nhân</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity style={styles.featureButton}>
-            <Text style={styles.featureButtonText}>Cài đặt</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity style={styles.featureButton}>
-            <Text style={styles.featureButtonText}>Hỗ trợ</Text>
-          </TouchableOpacity>
-        </View>
-
-        <TouchableOpacity 
-          style={styles.logoutButton}
-          onPress={handleLogout}
-        >
-          <Text style={styles.logoutButtonText}>Đăng xuất</Text>
-        </TouchableOpacity>
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
       </View>
-    </SafeAreaView>
+    );
+  }
+
+  return (
+    <ScrollView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+
+      {/* Header Section */}
+      <View style={[styles.header, { backgroundColor: theme.colors.primary }]}>
+        <View style={styles.headerContent}>
+          <View>
+            <Text style={styles.greeting}>Xin chào,</Text>
+            <Title style={styles.userName}>{user?.name || 'Khách'}</Title>
+          </View>
+          <TouchableOpacity onPress={() => navigation.navigate('Profile')}>
+            <Avatar.Text
+              size={50}
+              label={getInitials(user?.name || '')}
+              style={{ backgroundColor: theme.colors.secondary }}
+              color="#fff"
+            />
+          </TouchableOpacity>
+        </View>
+        {/* User Info Card Overlay */}
+        <Card style={styles.infoCard}>
+          <Card.Content style={styles.cardContent}>
+            <View style={styles.infoItem}>
+              <IconButton icon="phone" size={20} iconColor={theme.colors.primary} />
+              <Text>{user?.phone || 'Chưa cập nhật'}</Text>
+            </View>
+            <View style={styles.infoItem}>
+              <IconButton icon="account-badge" size={20} iconColor={theme.colors.primary} />
+              <Text style={{ textTransform: 'uppercase', fontWeight: 'bold' }}>{user?.role || 'USER'}</Text>
+            </View>
+          </Card.Content>
+        </Card>
+      </View>
+
+      {/* Main Content */}
+      <View style={styles.content}>
+
+        {/* Section Title */}
+        <View style={styles.sectionHeader}>
+          <Title style={styles.sectionTitle}>Đề tài của tôi</Title>
+          <Button mode="text" onPress={() => console.log('Xem tất cả')}>Xem tất cả</Button>
+        </View>
+
+        {/* Topic Grid */}
+        <View style={styles.grid}>
+          {topics.map((topic) => (
+            <Card key={topic.id} style={styles.topicCard} mode="elevated">
+              <Card.Content>
+                <Avatar.Icon
+                  size={40}
+                  icon={topic.icon}
+                  style={{ backgroundColor: topic.color, marginBottom: 10 }}
+                  color="#fff"
+                />
+                <Title style={styles.topicTitle}>{topic.title}</Title>
+                <Paragraph style={styles.topicProgress}>Tiến độ: {topic.progress * 100}%</Paragraph>
+              </Card.Content>
+            </Card>
+          ))}
+        </View>
+
+        {/* Actions */}
+        <Button
+          mode="contained"
+          onPress={() => navigation.navigate('Profile')}
+          style={[styles.logoutButton, { marginBottom: 10, backgroundColor: theme.colors.primary }]}
+          icon="account"
+        >
+          Thông tin cá nhân
+        </Button>
+
+        <Button
+          mode="contained"
+          onPress={handleLogout}
+          style={styles.logoutButton}
+          icon="logout"
+          buttonColor={theme.colors.error}
+        >
+          Đăng xuất
+        </Button>
+      </View>
+
+    </ScrollView>
   );
 };
+
+const { width } = Dimensions.get('window');
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8f9fa',
   },
-  content: {
+  loadingContainer: {
     flex: 1,
-    paddingHorizontal: 20,
-    paddingTop: 20,
-  },
-  welcomeContainer: {
-    backgroundColor: '#fff',
-    padding: 25,
-    borderRadius: 15,
-    marginBottom: 30,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  welcomeTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#2c3e50',
-    marginBottom: 15,
-    textAlign: 'center',
-  },
-  userInfo: {
+    justifyContent: 'center',
     alignItems: 'center',
   },
-  userName: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#34495e',
-    marginBottom: 5,
-  },
-  userPhone: {
-    fontSize: 16,
-    color: '#7f8c8d',
-    marginBottom: 3,
-  },
-  userEmail: {
-    fontSize: 14,
-    color: '#95a5a6',
-  },
-  featuresContainer: {
-    flex: 1,
-  },
-  featuresTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#2c3e50',
-    marginBottom: 20,
-  },
-  featureButton: {
-    backgroundColor: '#fff',
-    paddingVertical: 18,
+  header: {
+    paddingTop: 60,
+    paddingBottom: 80, // Space for Card Overlay
     paddingHorizontal: 20,
-    borderRadius: 12,
-    marginBottom: 15,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 3.84,
-    elevation: 5,
+    borderBottomLeftRadius: 30,
+    borderBottomRightRadius: 30,
   },
-  featureButtonText: {
+  headerContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  greeting: {
+    color: 'rgba(255,255,255,0.8)',
     fontSize: 16,
-    color: '#34495e',
-    fontWeight: '500',
+  },
+  userName: {
+    color: '#fff',
+    fontSize: 24,
+    fontWeight: 'bold',
+  },
+  infoCard: {
+    position: 'absolute',
+    bottom: -40,
+    left: 20,
+    right: 20,
+    elevation: 4,
+    borderRadius: 15,
+  },
+  cardContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    paddingVertical: 5,
+  },
+  infoItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  content: {
+    marginTop: 50, // Space for Card Overlay
+    paddingHorizontal: 20,
+    paddingBottom: 40,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 15,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  topicCard: {
+    width: (width - 50) / 2, // 2 columns
+    marginBottom: 15,
+    borderRadius: 12,
+  },
+  topicTitle: {
+    fontSize: 14,
+    marginTop: 5,
+    marginBottom: 5,
+    lineHeight: 20,
+  },
+  topicProgress: {
+    fontSize: 12,
+    color: '#888',
   },
   logoutButton: {
-    backgroundColor: '#e74c3c',
-    paddingVertical: 18,
-    borderRadius: 12,
     marginTop: 20,
-    marginBottom: 30,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  logoutButtonText: {
-    color: '#fff',
-    textAlign: 'center',
-    fontSize: 18,
-    fontWeight: 'bold',
+    borderRadius: 10,
+    paddingVertical: 5,
   },
 });
 

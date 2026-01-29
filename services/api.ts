@@ -3,7 +3,7 @@ import { LoginRequest, RegisterRequest, OTPRequest, ApiResponse, AuthResponse } 
 import { mockAuthAPI } from './mockApi'; // Import mock API
 
 // Thay đổi BASE_URL theo API của nhóm
-const BASE_URL = 'http://10.0.230.24:3000/api'; // IP của máy tính thay vì localhost
+const BASE_URL = 'http://10.0.240.110:3000/api'; // IP WiFi hiện tại (xem ipconfig)
 
 // Toggle để sử dụng mock API (true = mock, false = real API)
 const USE_MOCK_API = false;
@@ -27,7 +27,21 @@ api.interceptors.request.use(
     }
     return config;
   },
+
   (error) => {
+    console.error('Request Error:', error);
+    return Promise.reject(error);
+  }
+);
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.code === 'ERR_NETWORK') {
+      console.error('❌ Network Error - Cannot connect to server');
+      console.error('👉 Check if server is running at:', BASE_URL);
+      console.error('👉 Check if phone/emulator is on same network');
+    }
     return Promise.reject(error);
   }
 );
@@ -130,6 +144,56 @@ export const authAPI = {
         newPassword,
         token
       });
+      return response.data;
+    } catch (error: any) {
+      throw error.response?.data || error.message;
+    }
+  },
+
+  // Get Profile
+  getProfile: async (): Promise<ApiResponse<AuthResponse>> => {
+    try {
+      const response: AxiosResponse<ApiResponse<AuthResponse>> = await api.get('/profile');
+      return response.data;
+    } catch (error: any) {
+      throw error.response?.data || error.message;
+    }
+  },
+
+  // Update Profile
+  updateProfile: async (data: { name: string; avatar?: string }): Promise<ApiResponse<AuthResponse>> => {
+    try {
+      const response: AxiosResponse<ApiResponse<AuthResponse>> = await api.put('/profile', data);
+      return response.data;
+    } catch (error: any) {
+      throw error.response?.data || error.message;
+    }
+  },
+
+  // Change Password
+  changePassword: async (data: { oldPassword: string; newPassword: string }): Promise<ApiResponse> => {
+    try {
+      const response: AxiosResponse<ApiResponse> = await api.post('/auth/change-password', data);
+      return response.data;
+    } catch (error: any) {
+      throw error.response?.data || error.message;
+    }
+  },
+
+  // Request Change Contact
+  requestChangeContact: async (type: 'phone' | 'email', newValue: string): Promise<ApiResponse> => {
+    try {
+      const response: AxiosResponse<ApiResponse> = await api.post('/auth/request-change-contact', { type, newValue });
+      return response.data;
+    } catch (error: any) {
+      throw error.response?.data || error.message;
+    }
+  },
+
+  // Verify Change Contact
+  verifyChangeContact: async (otp: string): Promise<ApiResponse<any>> => {
+    try {
+      const response: AxiosResponse<ApiResponse<any>> = await api.post('/auth/verify-change-contact', { otp });
       return response.data;
     } catch (error: any) {
       throw error.response?.data || error.message;

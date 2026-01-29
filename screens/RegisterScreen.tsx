@@ -77,36 +77,46 @@ const RegisterScreen: React.FC<Props> = ({ navigation }) => {
         email: formData.email.trim() || undefined,
       };
 
+      console.log('🔵 Đang đăng ký với data:', registerData);
+      console.log('🔵 Sử dụng OTP:', useOTP);
+
       if (useOTP) {
         // Đăng ký với OTP
         const response = await authAPI.registerWithOTP(registerData);
-        
+        console.log('✅ Response từ registerWithOTP:', response);
+
         if (response.success) {
           Alert.alert('Thành công', 'Mã OTP đã được gửi đến số điện thoại của bạn', [
-            { 
-              text: 'OK', 
-              onPress: () => navigation.navigate('OTPVerification', { 
-                phone: formData.phone, 
-                type: 'register' 
+            {
+              text: 'OK',
+              onPress: () => navigation.navigate('OTPVerification', {
+                phone: formData.phone,
+                type: 'register'
               })
             }
           ]);
         } else {
+          console.log('❌ Đăng ký thất bại:', response.message);
           Alert.alert('Lỗi', response.message || 'Đăng ký thất bại');
         }
       } else {
         // Đăng ký không dùng OTP (theo yêu cầu)
         const response = await authAPI.register(registerData);
-        
+        console.log('✅ Response từ register:', response);
+
         if (response.success) {
           Alert.alert('Thành công', 'Đăng ký tài khoản thành công!', [
             { text: 'OK', onPress: () => navigation.navigate('Login') }
           ]);
         } else {
+          console.log('❌ Đăng ký thất bại:', response.message);
           Alert.alert('Lỗi', response.message || 'Đăng ký thất bại');
         }
       }
     } catch (error: any) {
+      console.log('❌ Lỗi exception:', error);
+      console.log('❌ Error message:', error.message);
+      console.log('❌ Error response:', error.response?.data);
       Alert.alert('Lỗi', error.message || 'Đăng ký thất bại');
     } finally {
       setLoading(false);
@@ -114,14 +124,14 @@ const RegisterScreen: React.FC<Props> = ({ navigation }) => {
   };
 
   return (
-    <KeyboardAvoidingView 
+    <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <ScrollView contentContainerStyle={styles.scrollContainer}>
         <View style={styles.formContainer}>
           <Text style={styles.title}>Đăng ký tài khoản</Text>
-          
+
           <TextInput
             style={styles.input}
             placeholder="Họ và tên"
@@ -129,7 +139,7 @@ const RegisterScreen: React.FC<Props> = ({ navigation }) => {
             onChangeText={(value) => handleInputChange('name', value)}
             placeholderTextColor="#999"
           />
-          
+
           <TextInput
             style={styles.input}
             placeholder="Số điện thoại"
@@ -139,7 +149,7 @@ const RegisterScreen: React.FC<Props> = ({ navigation }) => {
             maxLength={10}
             placeholderTextColor="#999"
           />
-          
+
           <TextInput
             style={styles.input}
             placeholder="Email (tùy chọn)"
@@ -149,7 +159,7 @@ const RegisterScreen: React.FC<Props> = ({ navigation }) => {
             autoCapitalize="none"
             placeholderTextColor="#999"
           />
-          
+
           <TextInput
             style={styles.input}
             placeholder="Mật khẩu"
@@ -158,7 +168,7 @@ const RegisterScreen: React.FC<Props> = ({ navigation }) => {
             secureTextEntry
             placeholderTextColor="#999"
           />
-          
+
           <TextInput
             style={styles.input}
             placeholder="Xác nhận mật khẩu"
@@ -180,9 +190,9 @@ const RegisterScreen: React.FC<Props> = ({ navigation }) => {
               </Text>
             </TouchableOpacity>
           </View>
-          
-          <TouchableOpacity 
-            style={[styles.registerButton, loading && styles.disabledButton]} 
+
+          <TouchableOpacity
+            style={[styles.registerButton, loading && styles.disabledButton]}
             onPress={handleRegister}
             disabled={loading}
           >
@@ -194,8 +204,8 @@ const RegisterScreen: React.FC<Props> = ({ navigation }) => {
               </Text>
             )}
           </TouchableOpacity>
-          
-          <TouchableOpacity 
+
+          <TouchableOpacity
             style={styles.linkButton}
             onPress={() => navigation.navigate('Login')}
           >

@@ -100,6 +100,29 @@ const validateResetPassword = [
         .notEmpty().withMessage('Token không được để trống')
 ];
 
+const validateUpdateProfile = [
+    body('name')
+        .trim()
+        .notEmpty().withMessage('Tên không được để trống')
+        .isLength({ min: 2 }).withMessage('Tên phải có ít nhất 2 ký tự'),
+    body('avatar')
+        .optional()
+        .trim()
+];
+
+const validateChangePassword = [
+    body('oldPassword')
+        .notEmpty().withMessage('Mật khẩu cũ không được để trống'),
+    body('newPassword')
+        .isLength({ min: 6 }).withMessage('Mật khẩu mới phải có ít nhất 6 ký tự')
+];
+
+const validateChangeContact = [
+    body('newValue')
+        .trim()
+        .notEmpty().withMessage('Giá trị mới không được để trống')
+];
+
 // Validation middleware
 const validate = (req, res, next) => {
     const errors = validationResult(req);
@@ -398,7 +421,7 @@ app.post('/api/auth/reset-password', validateResetPassword, validate, async (req
 // Get user profile
 app.get('/api/profile', authenticateToken, async (req, res) => {
     try {
-        const result = await db.query('SELECT id, phone, name, email, role FROM users WHERE id = $1', [req.user.id]);
+        const result = await db.query('SELECT id, phone, name, email, avatar, role FROM users WHERE id = $1', [req.user.id]);
 
         if (result.rows.length === 0) {
             return res.status(404).json({ success: false, message: 'User không tồn tại' });
@@ -407,6 +430,125 @@ app.get('/api/profile', authenticateToken, async (req, res) => {
         res.json({
             success: true,
             data: { user: result.rows[0] }
+        });
+    } catch (err) {
+        console.error('[ERROR]', err);
+        res.status(500).json({ success: false, message: 'Lỗi server' });
+    }
+});
+
+// Update user profile
+app.put('/api/profile', authenticateToken, validateUpdateProfile, validate, async (req, res) => {
+    const { name, avatar } = req.body;
+
+    try {
+        const result = await db.query(
+            'UPDATE users SET name = $1, avatar = $2 WHERE id = $3 RETURNING id, phone, name, email, avatar, role',
+            [name, avatar, req.user.id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'User không tồn tại' });
+        }
+
+        console.log(`[SUCCESS] User ${req.user.id} updated profile`);
+
+        res.json({
+            success: true,
+            message: 'Cập nhật thông tin thành công',
+            data: { user: result.rows[0] }
+        });
+    } catch (err) {
+        console.error('[ERROR]', err);
+        res.status(500).json({ success: false, message: 'Lỗi server' });
+    }
+});
+
+// Change Password
+app.post('/api/auth/change-password', authenticateToken, validateChangePassword, validate, async (req, res) => {
+    const { oldPassword, newPassword } = req.body;
+
+    try {
+        // Verify old password
+        const userCheck = await db.query('SELECT password FROM users WHERE id = $1', [req.user.id]);
+        if (userCheck.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'User không tồn tại' });
+        }
+
+        if (userCheck.rows[0].password !== oldPassword) {
+            return res.status(400).json({ success: false, message: 'Mật khẩu cũ không chính xác' });
+        }
+
+        await db.query('UPDATE users SET password = $1 WHERE id = $2', [newPassword, req.user.id]);
+
+        console.log(`[SUCCESS] User ${req.user.id} changed password`);
+
+        res.json({ success: true, message: 'Đổi mật khẩu thành công' });
+    } catch (err) {
+        console.error('[ERROR]', err);
+        res.status(500).json({ success: false, message: 'Lỗi server' });
+    }
+});
+
+// Request Change Contact (Phone or Email) - Send OTP
+app.post('/api/auth/request-change-contact', authenticateToken, validateChangeContact, validate, async (req, res) => {
+    const { type, newValue } = req.body; // type: 'phone' or 'email'
+
+    if (!['phone', 'email'].includes(type)) {
+        return res.status(400).json({ success: false, message: 'Loại thông tin không hợp lệ' });
+    }
+
+    try {
+        // Check if already exists
+        const check = await db.query(`SELECT id FROM users WHERE ${type} = $1`, [newValue]);
+        if (check.rows.length > 0) {
+            return res.status(400).json({ success: false, message: `${type === 'phone' ? 'Số điện thoại' : 'Email'} đã được sử dụng` });
+        }
+
+        const otp = generateOTP();
+        otpStorage[req.user.id] = { otp, expires: Date.now() + 300000, type: `change_${type}`, newValue };
+
+        console.log(`[OTP] Change ${type} for user ${req.user.id} to ${newValue}: ${otp}`);
+
+        res.json({ success: true, message: `OTP gửi đến ${newValue}: ${otp}` });
+    } catch (err) {
+        console.error('[ERROR]', err);
+        res.status(500).json({ success: false, message: 'Lỗi server' });
+    }
+});
+
+// Verify Change Contact OTP and Update
+app.post('/api/auth/verify-change-contact', authenticateToken, async (req, res) => {
+    const { otp } = req.body;
+    const stored = otpStorage[req.user.id];
+
+    if (!stored || !stored.type.startsWith('change_')) {
+        return res.status(400).json({ success: false, message: 'OTP không hợp lệ hoặc đã hết hạn' });
+    }
+
+    if (Date.now() > stored.expires) {
+        delete otpStorage[req.user.id];
+        return res.status(400).json({ success: false, message: 'OTP hết hạn' });
+    }
+
+    if (stored.otp !== otp) {
+        return res.status(400).json({ success: false, message: 'OTP sai' });
+    }
+
+    const type = stored.type.replace('change_', ''); // 'phone' or 'email'
+    const newValue = stored.newValue;
+
+    try {
+        await db.query(`UPDATE users SET ${type} = $1 WHERE id = $2`, [newValue, req.user.id]);
+
+        delete otpStorage[req.user.id];
+
+        console.log(`[SUCCESS] User ${req.user.id} changed ${type} to ${newValue}`);
+
+        res.json({
+            success: true,
+            message: `Cập nhật ${type === 'phone' ? 'số điện thoại' : 'email'} thành công`,
+            data: { [type]: newValue }
         });
     } catch (err) {
         console.error('[ERROR]', err);

@@ -3,6 +3,26 @@ export interface User {
   phone: string;
   name: string;
   email?: string;
+  avatar?: string;
+}
+
+export interface UpdateProfileRequest {
+  name: string;
+  avatar?: string;
+}
+
+export interface ChangePasswordRequest {
+  oldPassword: string;
+  newPassword: string;
+}
+
+export interface ChangeContactRequest {
+  type: 'phone' | 'email';
+  newValue: string;
+}
+
+export interface VerifyChangeContactRequest {
+  otp: string;
 }
 
 export interface LoginRequest {
