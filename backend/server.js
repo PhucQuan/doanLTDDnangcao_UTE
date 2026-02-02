@@ -557,6 +557,79 @@ app.post('/api/auth/verify-change-contact', authenticateToken, async (req, res) 
 });
 
 // ===================================
+// PUBLIC ROUTES (No Auth Required for Browse)
+// ===================================
+
+// GET /api/products - Search & Filter
+// Query: q (keyword), category, minPrice, maxPrice, sort (price_asc, price_desc)
+app.get('/api/products', async (req, res) => {
+    try {
+        const { q, category, minPrice, maxPrice, sort } = req.query;
+
+        let query = 'SELECT * FROM products WHERE 1=1';
+        let params = [];
+        let paramCount = 1;
+
+        if (q) {
+            query += ` AND (LOWER(name) LIKE $${paramCount} OR LOWER(description) LIKE $${paramCount})`;
+            params.push(`%${q.toLowerCase()}%`);
+            paramCount++;
+        }
+
+        if (category) {
+            query += ` AND category = $${paramCount}`;
+            params.push(category);
+            paramCount++;
+        }
+
+        if (minPrice) {
+            query += ` AND price >= $${paramCount}`;
+            params.push(minPrice);
+            paramCount++;
+        }
+
+        if (maxPrice) {
+            query += ` AND price <= $${paramCount}`;
+            params.push(maxPrice);
+            paramCount++;
+        }
+
+        if (sort === 'price_asc') {
+            query += ' ORDER BY price ASC';
+        } else if (sort === 'price_desc') {
+            query += ' ORDER BY price DESC';
+        } else {
+            query += ' ORDER BY created_at DESC';
+        }
+
+        const result = await db.query(query, params);
+        res.json({ success: true, data: result.rows });
+
+    } catch (err) {
+        console.error('[ERROR] Search products:', err);
+        res.status(500).json({ success: false, message: 'Lỗi server' });
+    }
+});
+
+// GET /api/products/:id - Product Details
+app.get('/api/products/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const result = await db.query('SELECT * FROM products WHERE id = $1', [id]);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Sản phẩm không tồn tại' });
+        }
+
+        res.json({ success: true, data: result.rows[0] });
+
+    } catch (err) {
+        console.error('[ERROR] Get product detail:', err);
+        res.status(500).json({ success: false, message: 'Lỗi server' });
+    }
+});
+
+// ===================================
 // ADMIN-ONLY ROUTES (Authorization Required)
 // ===================================
 

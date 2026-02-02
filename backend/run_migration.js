@@ -1,38 +1,25 @@
+const fs = require('fs');
+const path = require('path');
 const db = require('./db');
 
 const migrate = async () => {
     try {
-        console.log('⏳ Đang chạy migration...');
-        // Add role column if not exists
-        await db.query(`
-      DO $$ 
-      BEGIN
-          IF NOT EXISTS (
-              SELECT 1 FROM information_schema.columns 
-              WHERE table_name = 'users' AND column_name = 'role'
-          ) THEN
-              ALTER TABLE users ADD COLUMN role VARCHAR(20) DEFAULT 'user';
-          END IF;
-      END $$;
-    `);
-        console.log('✅ Đã thêm cột "role" vào bảng users.');
+        const fileName = process.argv[2];
+        if (!fileName) {
+            console.error('❌ Vui lòng cung cấp tên file SQL (VD: node run_migration.js migration.sql)');
+            process.exit(1);
+        }
 
-        // Add avatar column if not exists
-        await db.query(`
-      DO $$ 
-      BEGIN
-          IF NOT EXISTS (
-              SELECT 1 FROM information_schema.columns 
-              WHERE table_name = 'users' AND column_name = 'avatar'
-          ) THEN
-              ALTER TABLE users ADD COLUMN avatar VARCHAR(255);
-          END IF;
-      END $$;
-    `);
-        console.log('✅ Đã thêm cột "avatar" vào bảng users.');
+        const filePath = path.join(__dirname, fileName);
+        if (!fs.existsSync(filePath)) {
+            console.error(`❌ File không tồn tại: ${filePath}`);
+            process.exit(1);
+        }
 
-        // Update existing nulls
-        await db.query("UPDATE users SET role = 'user' WHERE role IS NULL");
+        console.log(`⏳ Đang chạy migration từ file: ${fileName}...`);
+
+        const sql = fs.readFileSync(filePath, 'utf8');
+        await db.query(sql);
 
         console.log('✅ Migration hoàn tất thành công!');
         process.exit(0);
