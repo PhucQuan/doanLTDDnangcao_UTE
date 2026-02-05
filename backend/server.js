@@ -630,6 +630,69 @@ app.get('/api/products/:id', async (req, res) => {
 });
 
 // ===================================
+// NEW ENDPOINTS - E-commerce Features
+// ===================================
+
+// GET /api/categories - Get all categories for horizontal display
+app.get('/api/categories', async (req, res) => {
+    try {
+        const result = await db.query('SELECT * FROM categories ORDER BY name ASC');
+
+        console.log(`[SUCCESS] Retrieved ${result.rows.length} categories`);
+
+        res.json({
+            success: true,
+            data: result.rows
+        });
+
+    } catch (err) {
+        console.error('[ERROR] Get categories:', err);
+        res.status(500).json({ success: false, message: 'Lỗi server' });
+    }
+});
+
+// GET /api/products/best-selling - Get top 10 best-selling products
+app.get('/api/products/best-selling', async (req, res) => {
+    try {
+        const result = await db.query(
+            'SELECT * FROM products ORDER BY sales_count DESC LIMIT 10'
+        );
+
+        console.log(`[SUCCESS] Retrieved ${result.rows.length} best-selling products`);
+
+        res.json({
+            success: true,
+            data: result.rows
+        });
+
+    } catch (err) {
+        console.error('[ERROR] Get best-selling products:', err);
+        res.status(500).json({ success: false, message: 'Lỗi server' });
+    }
+});
+
+// GET /api/products/discounted - Get 20 products with highest discount
+app.get('/api/products/discounted', async (req, res) => {
+    try {
+        const result = await db.query(
+            'SELECT * FROM products WHERE discount_percent > 0 ORDER BY discount_percent DESC LIMIT 20'
+        );
+
+        console.log(`[SUCCESS] Retrieved ${result.rows.length} discounted products`);
+
+        res.json({
+            success: true,
+            data: result.rows
+        });
+
+    } catch (err) {
+        console.error('[ERROR] Get discounted products:', err);
+        res.status(500).json({ success: false, message: 'Lỗi server' });
+    }
+});
+
+
+// ===================================
 // ADMIN-ONLY ROUTES (Authorization Required)
 // ===================================
 
