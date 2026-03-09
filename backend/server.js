@@ -561,38 +561,45 @@ app.post('/api/auth/verify-change-contact', authenticateToken, async (req, res) 
 // ===================================
 
 // GET /api/products - Search & Filter
-// Query: q (keyword), category, minPrice, maxPrice, sort (price_asc, price_desc)
+// Query: q (keyword), category, minPrice, maxPrice, sort (price_asc, price_desc), page, limit
 app.get('/api/products', async (req, res) => {
     try {
-        const { q, category, minPrice, maxPrice, sort } = req.query;
+        const { q, category, minPrice, maxPrice, sort, page = 1, limit = 10 } = req.query;
 
-        let query = 'SELECT * FROM products WHERE 1=1';
+        let baseQuery = ' FROM products WHERE 1=1';
         let params = [];
         let paramCount = 1;
 
         if (q) {
-            query += ` AND (LOWER(name) LIKE $${paramCount} OR LOWER(description) LIKE $${paramCount})`;
+            baseQuery += ` AND (LOWER(name) LIKE $${paramCount} OR LOWER(description) LIKE $${paramCount})`;
             params.push(`%${q.toLowerCase()}%`);
             paramCount++;
         }
 
         if (category) {
-            query += ` AND category = $${paramCount}`;
+            baseQuery += ` AND LOWER(category) = LOWER($${paramCount})`;
             params.push(category);
             paramCount++;
         }
 
         if (minPrice) {
-            query += ` AND price >= $${paramCount}`;
+            baseQuery += ` AND price >= $${paramCount}`;
             params.push(minPrice);
             paramCount++;
         }
 
         if (maxPrice) {
-            query += ` AND price <= $${paramCount}`;
+            baseQuery += ` AND price <= $${paramCount}`;
             params.push(maxPrice);
             paramCount++;
         }
+
+        // Get total count first
+        const countResult = await db.query(`SELECT COUNT(*)` + baseQuery, params);
+        const totalCount = parseInt(countResult.rows[0].count);
+
+        // Build main query
+        let query = `SELECT *` + baseQuery;
 
         if (sort === 'price_asc') {
             query += ' ORDER BY price ASC';
@@ -602,8 +609,22 @@ app.get('/api/products', async (req, res) => {
             query += ' ORDER BY created_at DESC';
         }
 
+        // Pagination
+        const offset = (page - 1) * limit;
+        query += ` LIMIT $${paramCount} OFFSET $${paramCount + 1}`;
+        params.push(limit, offset);
+
         const result = await db.query(query, params);
-        res.json({ success: true, data: result.rows });
+        res.json({
+            success: true,
+            data: result.rows,
+            pagination: {
+                totalCount,
+                page: parseInt(page),
+                limit: parseInt(limit),
+                totalPages: Math.ceil(totalCount / limit)
+            }
+        });
 
     } catch (err) {
         console.error('[ERROR] Search products:', err);
@@ -611,7 +632,66 @@ app.get('/api/products', async (req, res) => {
     }
 });
 
-// GET /api/products/:id - Product Details
+// ===================================
+// NEW ENDPOINTS - E-commerce Features
+// ===================================
+
+// GET /api/categories - Get all categories for horizontal display
+app.get('/api/categories', async (req, res) => {
+    try {
+        const result = await db.query('SELECT * FROM categories ORDER BY name ASC');
+        console.log(`[SUCCESS] Retrieved ${result.rows.length} categories`);
+        res.json({ success: true, data: result.rows });
+    } catch (err) {
+        console.error('[ERROR] Get categories:', err);
+        res.status(500).json({ success: false, message: 'Lỗi server' });
+    }
+});
+
+// Note: best-selling and discounted have been moved up before products/:id
+
+// GET /api/products/best-selling - Get top 10 best-selling products
+app.get('/api/products/best-selling', async (req, res) => {
+    try {
+        const result = await db.query(
+            'SELECT * FROM products ORDER BY sales_count DESC LIMIT 10'
+        );
+
+        console.log(`[SUCCESS] Retrieved ${result.rows.length} best-selling products`);
+
+        res.json({
+            success: true,
+            data: result.rows
+        });
+
+    } catch (err) {
+        console.error('[ERROR] Get best-selling products:', err);
+        res.status(500).json({ success: false, message: 'Lỗi server' });
+    }
+});
+
+// GET /api/products/discounted - Get 20 products with highest discount
+app.get('/api/products/discounted', async (req, res) => {
+    try {
+        const result = await db.query(
+            'SELECT * FROM products WHERE discount_percent > 0 ORDER BY discount_percent DESC LIMIT 20'
+        );
+
+        console.log(`[SUCCESS] Retrieved ${result.rows.length} discounted products`);
+
+        res.json({
+            success: true,
+            data: result.rows
+        });
+
+    } catch (err) {
+        console.error('[ERROR] Get discounted products:', err);
+        res.status(500).json({ success: false, message: 'Lỗi server' });
+    }
+});
+
+// GET /api/products/:id - Product Details 
+// MUST BE PLACED AFTER EXPLICIT PATHS LIKE best-selling / discounted
 app.get('/api/products/:id', async (req, res) => {
     try {
         const { id } = req.params;
@@ -620,9 +700,7 @@ app.get('/api/products/:id', async (req, res) => {
         if (result.rows.length === 0) {
             return res.status(404).json({ success: false, message: 'Sản phẩm không tồn tại' });
         }
-
         res.json({ success: true, data: result.rows[0] });
-
     } catch (err) {
         console.error('[ERROR] Get product detail:', err);
         res.status(500).json({ success: false, message: 'Lỗi server' });
@@ -729,6 +807,243 @@ app.delete('/api/users/:id', authenticateToken, authorizeRole('admin'), async (r
         res.json({ success: true, message: 'Xóa user thành công' });
     } catch (err) {
         console.error('[ERROR]', err);
+        res.status(500).json({ success: false, message: 'Lỗi server' });
+    }
+});
+
+// ===================================
+// CART ROUTES (Authentication Required)
+// ===================================
+
+// GET /api/cart - Get user's cart
+app.get('/api/cart', authenticateToken, async (req, res) => {
+    try {
+        const query = `
+            SELECT c.id, c.product_id, c.quantity, c.size, 
+                   p.name, p.price, p.image, p.category 
+            FROM cart_items c
+            JOIN products p ON c.product_id = p.id
+            WHERE c.user_id = $1
+            ORDER BY c.id DESC
+        `;
+        const result = await db.query(query, [req.user.id]);
+        res.json({ success: true, data: result.rows });
+    } catch (err) {
+        console.error('[ERROR] Get cart:', err);
+        res.status(500).json({ success: false, message: 'Lỗi server' });
+    }
+});
+
+// POST /api/cart - Add to cart
+app.post('/api/cart', authenticateToken, async (req, res) => {
+    const { product_id, quantity = 1, size = '40' } = req.body;
+    try {
+        // Check if item exists in cart
+        const check = await db.query(
+            'SELECT id, quantity FROM cart_items WHERE user_id = $1 AND product_id = $2 AND size = $3',
+            [req.user.id, product_id, size]
+        );
+
+        if (check.rows.length > 0) {
+            // Update quantity
+            const newQty = check.rows[0].quantity + quantity;
+            const result = await db.query(
+                'UPDATE cart_items SET quantity = $1 WHERE id = $2 RETURNING *',
+                [newQty, check.rows[0].id]
+            );
+            res.json({ success: true, data: result.rows[0], message: 'Đã cập nhật số lượng' });
+        } else {
+            // Insert new
+            const result = await db.query(
+                'INSERT INTO cart_items (user_id, product_id, quantity, size) VALUES ($1, $2, $3, $4) RETURNING *',
+                [req.user.id, product_id, quantity, size]
+            );
+            res.json({ success: true, data: result.rows[0], message: 'Đã thêm vào giỏ hàng' });
+        }
+    } catch (err) {
+        console.error('[ERROR] Add to cart:', err);
+        res.status(500).json({ success: false, message: 'Lỗi server' });
+    }
+});
+
+// PUT /api/cart/:id - Update cart item quantity
+app.put('/api/cart/:id', authenticateToken, async (req, res) => {
+    const { quantity } = req.body;
+    const { id } = req.params;
+    try {
+        const result = await db.query(
+            'UPDATE cart_items SET quantity = $1 WHERE id = $2 AND user_id = $3 RETURNING *',
+            [quantity, id, req.user.id]
+        );
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Không tìm thấy sản phẩm trong giỏ' });
+        }
+        res.json({ success: true, data: result.rows[0], message: 'Cập nhật số lượng thành công' });
+    } catch (err) {
+        console.error('[ERROR] Update cart:', err);
+        res.status(500).json({ success: false, message: 'Lỗi server' });
+    }
+});
+
+// DELETE /api/cart/:id - Remove item from cart
+app.delete('/api/cart/:id', authenticateToken, async (req, res) => {
+    const { id } = req.params;
+    try {
+        const result = await db.query('DELETE FROM cart_items WHERE id = $1 AND user_id = $2', [id, req.user.id]);
+        if (result.rowCount === 0) {
+            return res.status(404).json({ success: false, message: 'Không tìm thấy sản phẩm trong giỏ' });
+        }
+        res.json({ success: true, message: 'Đã xóa sản phẩm khỏi giỏ hàng' });
+    } catch (err) {
+        console.error('[ERROR] Delete cart item:', err);
+        res.status(500).json({ success: false, message: 'Lỗi server' });
+    }
+});
+
+// DELETE /api/cart - Clear cart
+app.delete('/api/cart', authenticateToken, async (req, res) => {
+    try {
+        await db.query('DELETE FROM cart_items WHERE user_id = $1', [req.user.id]);
+        res.json({ success: true, message: 'Đã làm sạch giỏ hàng' });
+    } catch (err) {
+        console.error('[ERROR] Clear cart:', err);
+        res.status(500).json({ success: false, message: 'Lỗi server' });
+    }
+});
+
+// ===================================
+// ORDER ROUTES (Authentication Required)
+// ===================================
+
+// POST /api/orders - Create an order
+app.post('/api/orders', authenticateToken, async (req, res) => {
+    const { total_amount, shipping_address, receiver_name, receiver_phone, note, payment_method = 'COD', items } = req.body;
+
+    if (!items || items.length === 0) {
+        return res.status(400).json({ success: false, message: 'Giỏ hàng trống' });
+    }
+
+    try {
+        // Start transaction
+        await db.query('BEGIN');
+
+        // Create order
+        const orderResult = await db.query(
+            `INSERT INTO orders (user_id, total_amount, shipping_address, receiver_name, receiver_phone, payment_method, note) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+            [req.user.id, total_amount, shipping_address, receiver_name, receiver_phone, payment_method, note]
+        );
+        const orderId = orderResult.rows[0].id;
+
+        // Insert order items
+        for (let item of items) {
+            await db.query(
+                `INSERT INTO order_items (order_id, product_id, product_name, product_image, product_category, price, quantity, size) 
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+                [orderId, item.product_id, item.name, item.image, item.category, item.price, item.quantity, item.size]
+            );
+        }
+
+        // Clear user's cart
+        await db.query('DELETE FROM cart_items WHERE user_id = $1', [req.user.id]);
+
+        await db.query('COMMIT');
+
+        // Trigger auto confirmation in 30 minutes (Simulated logic, ideally use a job queue like Bull or Cron, here we just trust the client app or a cron job)
+        // For simplicity, we just save the created_at.
+
+        res.json({ success: true, data: orderResult.rows[0], message: 'Đặt hàng thành công' });
+    } catch (err) {
+        await db.query('ROLLBACK');
+        console.error('[ERROR] Create order:', err);
+        res.status(500).json({ success: false, message: 'Lỗi khi đặt hàng' });
+    }
+});
+
+// GET /api/orders - Get user's orders
+app.get('/api/orders', authenticateToken, async (req, res) => {
+    try {
+        const query = `
+            SELECT * FROM orders 
+            WHERE user_id = $1 
+            ORDER BY created_at DESC
+        `;
+        const result = await db.query(query, [req.user.id]);
+        res.json({ success: true, data: result.rows });
+    } catch (err) {
+        console.error('[ERROR] Get orders:', err);
+        res.status(500).json({ success: false, message: 'Lỗi server' });
+    }
+});
+
+// GET /api/orders/:id - Get order details
+app.get('/api/orders/:id', authenticateToken, async (req, res) => {
+    const { id } = req.params;
+    try {
+        // Query order
+        const orderResult = await db.query('SELECT * FROM orders WHERE id = $1 AND user_id = $2', [id, req.user.id]);
+        if (orderResult.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Không tìm thấy đơn hàng' });
+        }
+
+        // Query items
+        const itemsResult = await db.query('SELECT * FROM order_items WHERE order_id = $1', [id]);
+
+        res.json({
+            success: true,
+            data: {
+                ...orderResult.rows[0],
+                items: itemsResult.rows
+            }
+        });
+    } catch (err) {
+        console.error('[ERROR] Get order detail:', err);
+        res.status(500).json({ success: false, message: 'Lỗi server' });
+    }
+});
+
+// PATCH /api/orders/:id/cancel - Cancel order (User)
+app.patch('/api/orders/:id/cancel', authenticateToken, async (req, res) => {
+    const { id } = req.params;
+    try {
+        const order = await db.query('SELECT * FROM orders WHERE id = $1 AND user_id = $2', [id, req.user.id]);
+        if (order.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Không tìm thấy đơn hàng' });
+        }
+
+        const currentOrder = order.rows[0];
+        const now = new Date();
+        const createdDate = new Date(currentOrder.created_at);
+        const diffMinutes = Math.floor((now.getTime() - createdDate.getTime()) / 60000);
+
+        // If status >= 3 or time > 30 minutes, cannot directly cancel, maybe request cancel
+        if (currentOrder.status >= 3 || diffMinutes > 30) {
+            // Update to Cancel Request
+            await db.query('UPDATE orders SET cancel_request = TRUE WHERE id = $1', [id]);
+            return res.json({ success: true, message: 'Đã gửi yêu cầu hủy đơn hàng cho Shop' });
+        }
+
+        // Direct cancel
+        await db.query(
+            'UPDATE orders SET status = 6, cancelled_at = NOW() WHERE id = $1 RETURNING *',
+            [id]
+        );
+        res.json({ success: true, message: 'Đã hủy đơn hàng thành công' });
+    } catch (err) {
+        console.error('[ERROR] Cancel order:', err);
+        res.status(500).json({ success: false, message: 'Lỗi server' });
+    }
+});
+
+// PATCH /api/orders/:id/status - Update order status (Admin)
+app.patch('/api/orders/:id/status', authenticateToken, authorizeRole('admin'), async (req, res) => {
+    const { id } = req.params;
+    const { status } = req.body;
+    try {
+        await db.query('UPDATE orders SET status = $1 WHERE id = $2', [status, id]);
+        res.json({ success: true, message: 'Đã cập nhật trạng thái đơn hàng' });
+    } catch (err) {
+        console.error('[ERROR] Update order status:', err);
         res.status(500).json({ success: false, message: 'Lỗi server' });
     }
 });
