@@ -115,7 +115,11 @@ const ProfileScreen = () => {
             </View>
 
             <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Bảo mật</Text>
+                <Text style={styles.sectionTitle}>Bảo mật & Mua sắm</Text>
+
+                <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('OrderHistory')}>
+                    <Text style={styles.menuText}>Đơn hàng của tôi</Text>
+                </TouchableOpacity>
 
                 <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('EditProfile')}>
                     <Text style={styles.menuText}>Chỉnh sửa trang cá nhân</Text>

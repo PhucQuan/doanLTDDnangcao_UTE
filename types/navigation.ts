@@ -9,6 +9,13 @@ export type RootStackParamList = {
   EditProfile: undefined;
   ChangePassword: undefined;
   ChangeContact: { type: 'phone' | 'email' };
+  ProductDetail: { productId: number };
+  CategoryProducts: { category: string };
+  Cart: undefined;
+  Checkout: undefined;
+  OrderSuccess: { orderId: number };
+  OrderHistory: undefined;
+  OrderDetail: { orderId: number };
 };
 
 declare global {

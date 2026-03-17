@@ -1,12 +1,18 @@
-import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, ScrollView, Alert, Dimensions, TouchableOpacity } from 'react-native';
-import { Text, Button, Card, Avatar, Title, Paragraph, IconButton, useTheme, ActivityIndicator } from 'react-native-paper';
-import { useNavigation } from '@react-navigation/native';
+import React, { useEffect, useState, useCallback } from 'react';
+import { View, StyleSheet, ScrollView, Alert, TouchableOpacity, FlatList, Keyboard } from 'react-native';
+import { Text, Avatar, Title, useTheme, Searchbar, Card, ActivityIndicator, Chip, IconButton, Badge } from 'react-native-paper';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StackNavigationProp } from '@react-navigation/stack';
-import { COLORS } from '../utils/constants';
+import { RootStackParamList } from '../types/navigation';
+import { Product } from '../types/product';
+import config from '../utils/config';
+import { useCartStore } from '../store/cartStore';
 
-// Định nghĩa kiểu cho User Data
+import CategoryList from '../components/CategoryList';
+import BestSellingProducts from '../components/BestSellingProducts';
+import DiscountedProducts from '../components/DiscountedProducts';
+
 interface UserData {
   name: string;
   phone: string;
@@ -15,22 +21,31 @@ interface UserData {
 }
 
 const HomeScreen = () => {
-  const navigation = useNavigation<StackNavigationProp<any>>();
+  const navigation = useNavigation<StackNavigationProp<RootStackParamList>>();
   const theme = useTheme();
-  const [user, setUser] = useState<UserData | null>(null);
-  const [loading, setLoading] = useState(true);
 
-  // Mock Data cho danh sách đề tài (Sau này thế bằng API)
-  const topics = [
-    { id: 1, title: 'Lập trình di động React Native', icon: 'cellphone', progress: 0.8, color: '#4caf50' },
-    { id: 2, title: 'Bảo mật API & Backend', icon: 'shield-check', progress: 0.6, color: '#2196f3' },
-    { id: 3, title: 'Thiết kế UI/UX với Paper', icon: 'palette', progress: 0.4, color: '#ff9800' },
-    { id: 4, title: 'Quản lý State & Redux', icon: 'database', progress: 0.2, color: '#9c27b0' },
-  ];
+  const [user, setUser] = useState<UserData | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+
+  // Search state
+  const [searchResults, setSearchResults] = useState<Product[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [loadingSearch, setLoadingSearch] = useState(false);
+
+  const { getCartCount, fetchCart } = useCartStore();
 
   useEffect(() => {
     loadUserData();
+    fetchCart();
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadUserData();
+      fetchCart();
+    }, [])
+  );
 
   const loadUserData = async () => {
     try {
@@ -40,218 +55,227 @@ const HomeScreen = () => {
       }
     } catch (error) {
       console.error('Lỗi khi load user:', error);
-    } finally {
-      setLoading(false);
     }
   };
 
   const handleLogout = async () => {
-    Alert.alert(
-      'Đăng xuất',
-      'Bạn có chắc chắn muốn đăng xuất?',
-      [
-        { text: 'Hủy', style: 'cancel' },
-        {
-          text: 'Đăng xuất',
-          style: 'destructive',
-          onPress: async () => {
-            await AsyncStorage.clear(); // Xóa session
-            navigation.replace('Login'); // Quay về Login
-          }
+    Alert.alert('Đăng xuất', 'Bạn có chắc chắn muốn đăng xuất?', [
+      { text: 'Hủy', style: 'cancel' },
+      {
+        text: 'Đăng xuất', style: 'destructive', onPress: async () => {
+          await AsyncStorage.clear();
+          navigation.replace('Login');
         }
-      ]
-    );
+      }
+    ]);
   };
 
-  const getInitials = (name: string) => {
-    return name ? name.charAt(0).toUpperCase() : 'U';
+  // Logic gọi API để lọc/tìm kiếm sản phẩm
+  const executeSearch = async (query: string, category: string | null) => {
+    if (!query.trim() && !category) {
+      setIsSearching(false);
+      setSearchResults([]);
+      return;
+    }
+
+    setIsSearching(true);
+    setLoadingSearch(true);
+    try {
+      let url = `${config.API_URL}/api/products?`;
+      if (query.trim()) url += `q=${encodeURIComponent(query)}&`;
+      if (category) url += `category=${encodeURIComponent(category)}`;
+
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data.success) {
+        setSearchResults(data.data);
+      }
+    } catch (err) {
+      console.error('Lỗi khi search:', err);
+    } finally {
+      setLoadingSearch(false);
+    }
   };
 
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={theme.colors.primary} />
-      </View>
-    );
-  }
+  const handleSearchSubmit = () => {
+    Keyboard.dismiss();
+    executeSearch(searchQuery, selectedCategory);
+  };
+
+  const onChangeCategory = (cat: string | null) => {
+    setSelectedCategory(cat);
+    executeSearch(searchQuery, cat);
+  };
+
+  const getInitials = (name: string) => name ? name.charAt(0).toUpperCase() : 'U';
+
+  const formatPrice = (price: string | number) => {
+    return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(Number(price));
+  };
 
   return (
-    <ScrollView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
 
       {/* Header Section */}
       <View style={[styles.header, { backgroundColor: theme.colors.primary }]}>
         <View style={styles.headerContent}>
           <View>
-            <Text style={styles.greeting}>Xin chào,</Text>
-            <Title style={styles.userName}>{user?.name || 'Khách'}</Title>
+            <Text style={styles.greeting}>Trở lại sân bóng,</Text>
+            <Title style={styles.userName}>{user?.name || 'Vận động viên'}</Title>
           </View>
-          <TouchableOpacity onPress={() => navigation.navigate('Profile')}>
-            <Avatar.Text
-              size={50}
-              label={getInitials(user?.name || '')}
-              style={{ backgroundColor: theme.colors.secondary }}
-              color="#fff"
-            />
-          </TouchableOpacity>
+          <View style={styles.headerRight}>
+            <TouchableOpacity onPress={() => navigation.navigate('Cart')} style={styles.cartBtn}>
+              <IconButton icon="cart-outline" iconColor="#fff" size={24} style={{ margin: 0 }} />
+              {getCartCount() > 0 && (
+                <Badge style={styles.badge} size={18}>{getCartCount()}</Badge>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={() => navigation.navigate('Profile')} style={styles.avatarBorder}>
+              <Avatar.Text
+                size={40}
+                label={getInitials(user?.name || '')}
+                style={{ backgroundColor: theme.colors.secondary }}
+                color="#fff"
+              />
+            </TouchableOpacity>
+          </View>
         </View>
-        {/* User Info Card Overlay */}
-        <Card style={styles.infoCard}>
-          <Card.Content style={styles.cardContent}>
-            <View style={styles.infoItem}>
-              <IconButton icon="phone" size={20} iconColor={theme.colors.primary} />
-              <Text>{user?.phone || 'Chưa cập nhật'}</Text>
-            </View>
-            <View style={styles.infoItem}>
-              <IconButton icon="account-badge" size={20} iconColor={theme.colors.primary} />
-              <Text style={{ textTransform: 'uppercase', fontWeight: 'bold' }}>{user?.role || 'USER'}</Text>
-            </View>
-          </Card.Content>
-        </Card>
+
+        {/* Search Bar */}
+        <Searchbar
+          placeholder="Tên đôi giày, kích thước, hiệu..."
+          placeholderTextColor="#90A4AE"
+          iconColor="#B0BEC5"
+          onChangeText={(txt) => {
+            setSearchQuery(txt);
+            if (!txt && !selectedCategory) setIsSearching(false);
+          }}
+          value={searchQuery}
+          onSubmitEditing={handleSearchSubmit}
+          onIconPress={handleSearchSubmit}
+          style={styles.searchBar}
+          inputStyle={styles.searchInput}
+        />
       </View>
 
-      {/* Main Content */}
-      <View style={styles.content}>
+      {/* Main Content - ScrollView */}
+      <ScrollView
+        style={styles.content}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* Lọc danh mục dùng thư mục chung */}
+        <CategoryList selectedCategory={selectedCategory} onSelectCategory={onChangeCategory} />
 
-        {/* Section Title */}
-        <View style={styles.sectionHeader}>
-          <Title style={styles.sectionTitle}>Đề tài của tôi</Title>
-          <Button mode="text" onPress={() => console.log('Xem tất cả')}>Xem tất cả</Button>
-        </View>
+        {isSearching ? (
+          /* =================== KẾT QUẢ TÌM KIẾM =================== */
+          <View style={styles.searchResultContainer}>
+            <View style={styles.searchHeader}>
+              <Text style={styles.searchTitle}>KẾT QUẢ TÌM KIẾM</Text>
+              <Chip icon="close" onPress={() => {
+                setSearchQuery('');
+                setSelectedCategory(null);
+                setIsSearching(false);
+              }} textStyle={{ fontSize: 12 }}>Bỏ lọc</Chip>
+            </View>
 
-        {/* Topic Grid */}
-        <View style={styles.grid}>
-          {topics.map((topic) => (
-            <Card key={topic.id} style={styles.topicCard} mode="elevated">
-              <Card.Content>
-                <Avatar.Icon
-                  size={40}
-                  icon={topic.icon}
-                  style={{ backgroundColor: topic.color, marginBottom: 10 }}
-                  color="#fff"
-                />
-                <Title style={styles.topicTitle}>{topic.title}</Title>
-                <Paragraph style={styles.topicProgress}>Tiến độ: {topic.progress * 100}%</Paragraph>
-              </Card.Content>
-            </Card>
-          ))}
-        </View>
-
-        {/* Actions */}
-        <Button
-          mode="contained"
-          onPress={() => navigation.navigate('Profile')}
-          style={[styles.logoutButton, { marginBottom: 10, backgroundColor: theme.colors.primary }]}
-          icon="account"
-        >
-          Thông tin cá nhân
-        </Button>
-
-        <Button
-          mode="contained"
-          onPress={handleLogout}
-          style={styles.logoutButton}
-          icon="logout"
-          buttonColor={theme.colors.error}
-        >
-          Đăng xuất
-        </Button>
-      </View>
-
-    </ScrollView>
+            {loadingSearch ? (
+              <ActivityIndicator size="large" color={theme.colors.secondary} style={styles.loaderSpacing} />
+            ) : searchResults.length === 0 ? (
+              <View style={styles.emptyContainer}>
+                <Text style={styles.emptyText}>Không tìm thấy sản phẩm nào trên sân!</Text>
+              </View>
+            ) : (
+              <View style={styles.gridContainer}>
+                {searchResults.map(item => (
+                  <TouchableOpacity
+                    key={item.id.toString()}
+                    style={styles.gridItem}
+                    onPress={() => navigation.navigate('ProductDetail', { productId: item.id })}
+                  >
+                    <Card style={styles.searchCard}>
+                      <Card.Cover source={{ uri: item.image }} style={styles.cardImage} />
+                      <Card.Content style={styles.cardContent}>
+                        <Text numberOfLines={2} style={styles.cardTitle}>{item.name}</Text>
+                        <Text style={[styles.cardPrice, { color: theme.colors.secondary }]}>{formatPrice(item.price)}</Text>
+                      </Card.Content>
+                    </Card>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </View>
+        ) : (
+          /* =================== MẶC ĐỊNH (HOME) =================== */
+          <View>
+            <BestSellingProducts />
+            <DiscountedProducts />
+          </View>
+        )}
+        <View style={{ height: 40 }} />
+      </ScrollView>
+    </View>
   );
 };
 
-const { width } = Dimensions.get('window');
-
+// ... Design mới cho HomeScreen
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
+  container: { flex: 1 },
   header: {
     paddingTop: 60,
-    paddingBottom: 80, // Space for Card Overlay
+    paddingBottom: 25,
     paddingHorizontal: 20,
-    borderBottomLeftRadius: 30,
-    borderBottomRightRadius: 30,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    elevation: 8,
+    shadowColor: '#000', shadowOpacity: 0.2, shadowOffset: { width: 0, height: 4 }, shadowRadius: 5,
   },
   headerContent: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20,
+  },
+  headerRight: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
   },
-  greeting: {
-    color: 'rgba(255,255,255,0.8)',
-    fontSize: 16,
+  cartBtn: {
+    marginRight: 15,
+    position: 'relative',
   },
-  userName: {
-    color: '#fff',
-    fontSize: 24,
-    fontWeight: 'bold',
-  },
-  infoCard: {
+  badge: {
     position: 'absolute',
-    bottom: -40,
-    left: 20,
-    right: 20,
-    elevation: 4,
-    borderRadius: 15,
-  },
-  cardContent: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-    paddingVertical: 5,
-  },
-  infoItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  content: {
-    marginTop: 50, // Space for Card Overlay
-    paddingHorizontal: 20,
-    paddingBottom: 40,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 15,
-  },
-  sectionTitle: {
-    fontSize: 20,
+    top: -5,
+    right: -5,
+    backgroundColor: '#FF8599',
+    color: '#fff',
     fontWeight: 'bold',
-    color: '#333',
   },
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
+  greeting: { color: 'rgba(255,255,255,0.7)', fontSize: 13, fontWeight: '500', textTransform: 'uppercase' },
+  userName: { color: '#fff', fontSize: 22, fontWeight: 'bold', marginTop: 2 },
+  avatarBorder: {
+    borderWidth: 2, borderColor: 'rgba(255,255,255,0.3)', borderRadius: 24, padding: 2,
   },
-  topicCard: {
-    width: (width - 50) / 2, // 2 columns
-    marginBottom: 15,
-    borderRadius: 12,
+  searchBar: {
+    borderRadius: 14, backgroundColor: '#fff', height: 50, elevation: 4,
   },
-  topicTitle: {
-    fontSize: 14,
-    marginTop: 5,
-    marginBottom: 5,
-    lineHeight: 20,
-  },
-  topicProgress: {
-    fontSize: 12,
-    color: '#888',
-  },
-  logoutButton: {
-    marginTop: 20,
-    borderRadius: 10,
-    paddingVertical: 5,
-  },
+  searchInput: { fontSize: 15, paddingVertical: 0 },
+  content: { flex: 1, paddingTop: 10 },
+
+  /* Styling Ket qua */
+  searchResultContainer: { paddingHorizontal: 20, marginTop: 10 },
+  searchHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
+  searchTitle: { fontSize: 18, fontWeight: '900', color: '#1A2A3A' },
+  emptyContainer: { padding: 40, alignItems: 'center' },
+  emptyText: { color: '#888', fontSize: 15, fontStyle: 'italic' },
+  loaderSpacing: { marginTop: 40 },
+
+  gridContainer: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
+  gridItem: { width: '47%', marginBottom: 15 },
+  searchCard: { backgroundColor: '#fff', borderRadius: 12, elevation: 3, overflow: 'hidden' },
+  cardImage: { height: 130, borderRadius: 0 },
+  cardContent: { padding: 10 },
+  cardTitle: { fontSize: 13, color: '#333', marginBottom: 5, minHeight: 35, lineHeight: 18, fontWeight: '600' },
+  cardPrice: { fontSize: 15, fontWeight: '900' }
 });
 
 export default HomeScreen;

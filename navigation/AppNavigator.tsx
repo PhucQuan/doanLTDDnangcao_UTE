@@ -11,6 +11,13 @@ import ProfileScreen from '../screens/ProfileScreen';
 import EditProfileScreen from '../screens/EditProfileScreen';
 import ChangePasswordScreen from '../screens/ChangePasswordScreen';
 import ChangeContactScreen from '../screens/ChangeContactScreen';
+import ProductDetailScreen from '../screens/ProductDetailScreen';
+import CategoryProductsScreen from '../screens/CategoryProductsScreen';
+import CartScreen from '../screens/CartScreen';
+import CheckoutScreen from '../screens/CheckoutScreen';
+import OrderSuccessScreen from '../screens/OrderSuccessScreen';
+import OrderHistoryScreen from '../screens/OrderHistoryScreen';
+import OrderDetailScreen from '../screens/OrderDetailScreen';
 import { RootStackParamList } from '../types/navigation';
 
 const Stack = createStackNavigator<RootStackParamList>();
@@ -86,6 +93,41 @@ const AppNavigator: React.FC = () => {
                     name="ChangeContact"
                     component={ChangeContactScreen}
                     options={({ route }) => ({ title: route.params.type === 'phone' ? 'Đổi số điện thoại' : 'Đổi Email' })}
+                />
+                <Stack.Screen
+                    name="ProductDetail"
+                    component={ProductDetailScreen}
+                    options={{ title: 'Chi tiết sản phẩm' }}
+                />
+                <Stack.Screen
+                    name="CategoryProducts"
+                    component={CategoryProductsScreen}
+                    options={({ route }) => ({ title: `Danh mục: ${route.params.category}` })}
+                />
+                <Stack.Screen
+                    name="Cart"
+                    component={CartScreen}
+                    options={{ title: 'Giỏ hàng' }}
+                />
+                <Stack.Screen
+                    name="Checkout"
+                    component={CheckoutScreen}
+                    options={{ title: 'Thanh toán' }}
+                />
+                <Stack.Screen
+                    name="OrderSuccess"
+                    component={OrderSuccessScreen}
+                    options={{ title: 'Đặt hàng thành công', headerLeft: () => null }}
+                />
+                <Stack.Screen
+                    name="OrderHistory"
+                    component={OrderHistoryScreen}
+                    options={{ title: 'Lịch sử đơn hàng' }}
+                />
+                <Stack.Screen
+                    name="OrderDetail"
+                    component={OrderDetailScreen}
+                    options={{ title: 'Chi tiết đơn hàng' }}
                 />
             </Stack.Navigator>
         </NavigationContainer>

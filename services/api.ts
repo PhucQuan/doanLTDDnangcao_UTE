@@ -1,9 +1,15 @@
 import axios, { AxiosResponse } from 'axios';
+import { Platform } from 'react-native';
 import { LoginRequest, RegisterRequest, OTPRequest, ApiResponse, AuthResponse } from '../types';
 import { mockAuthAPI } from './mockApi'; // Import mock API
 
-// Thay đổi BASE_URL theo API của nhóm
-const BASE_URL = 'http://10.0.240.110:3000/api'; // IP WiFi hiện tại (xem ipconfig)
+// Tự động chọn IP đúng tùy môi trường
+const getBaseURL = () => {
+  if (Platform.OS === 'web') return 'http://localhost:3000/api';       // Expo Web (browser)
+  if (Platform.OS === 'android') return 'http://10.0.2.2:3000/api';   // Android Emulator
+  return 'http://192.168.1.2:3000/api';                                // Điện thoại thật (iOS/Android qua WiFi)
+};
+const BASE_URL = getBaseURL();
 
 // Toggle để sử dụng mock API (true = mock, false = real API)
 const USE_MOCK_API = false;
